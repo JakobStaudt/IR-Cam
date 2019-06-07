@@ -15,17 +15,33 @@ myWin.imexam()
 # myWin.view(array)
 # myWin.zoom()  # by default, zoom-to-fit, or give it a scale factor
 """
+
+"""
+CURRENT PROBLEMS:
+
+aper_phot / gauss_center throws ValueError: zero-size array to reduction operation maximum which has no identity
+if point is too far to the lower border of the image (distance to border < delta)
+and ValueError: operands could not be broadcast together with shapes (placeholder,ph) (ph,ph)
+if point is too close to the upper border of the image (distance to border < delta)
+Current workaround:
+Dont use Gaussian fit in these cases and instead use the position of the brightest Pixel
+"""
+
+
+
+
 import os
 os.environ['XPA_METHOD'] = "local"
 import matplotlib.pyplot as plt
 import matplotlib,imexam
 import numpy as np
-import imexamMOD
-from imexamMOD import imexamine
+import imexam
+from imexam import imexamine
 from astropy.io import fits
 import random
 import math
 import sys
+import traceback
 
 
 
@@ -35,8 +51,10 @@ pointsToAnalyze = 110             # How many Points to analyze and plot
 minFlux = 3000                    # Minimum Flux to continue searching
 minDistance = 15                  # Minimum Manhattan distance to every old Point to accept new Point
 verbose = False                   # Enable debug printout
-plateDist = 700                   # Distance to plate in mm
+plateDist = 815                   # Distance to plate in mm
 holeSpacing = 50                  # Distance between points in mm
+
+ignoreBreakpoints = True
 
 
 # override with commandline Args:
@@ -50,11 +68,13 @@ try:
     if argCount > 3:
         minFlux = int(sys.argv[3])
     if argCount > 4:
-        verbose = bool(sys.argv[4])
+        minDistance = int(sys.argv[4])
     if argCount > 5:
-        plateDist = sys.int(argv[5])
+        verbose = bool(sys.argv[5])
     if argCount > 6:
-        holeSpacing = int(sys.argv[6])
+        plateDist = int(sys.argv[6])
+    if argCount > 7:
+        holeSpacing = int(sys.argv[7])
 except Exception as e:
     print("INVALID ARGUMENTS:", e)
     sys.exit()
@@ -84,37 +104,72 @@ def getNearestHole(measuredX, measuredY):
     realX, realY = nearestPoint[0], nearestPoint[1]
     return realX, realY
 
+def breakPoint():
+	global ignoreBreakpoints
+	if not ignoreBreakpoints:
+		while True:
+			userIn = input(">>> ")
+			if userIn == "c" or userIn == "continue" or userIn == "":
+				break
+			if userIn == "k" or userIn == "kill":
+				sys.exit()
+			else:
+				try:
+					exec(userIn)
+				except Exception as e:
+					print("Fail", e)
+
+def getPointPos(plateDist, xOffset, yOffset):
+    xDist = math.sqrt(plateDist**2 + xOffset**2)
+    yDist = math.sqrt(plateDist**2 + yOffset**2)
+
+    dirDist = math.sqrt(xDist**2 + yOffset**2)
+
+    realX = math.degrees(math.atan(xOffset/yDist))
+    realY = math.degrees(math.atan(yOffset/xDist))
+
+    return realX, realY
+
+
+def getPointMatrix(plateDist, holeSpacing):
+	"""Generate real position matrix"""
+	realPoints = []
+	for x in range(-8, 9):
+	    xOffset = x*holeSpacing
+	    for y in range(-6, 7):
+	        yOffset = y*holeSpacing
+
+	        xDist = math.sqrt(plateDist**2 + xOffset**2)
+	        yDist = math.sqrt(plateDist**2 + yOffset**2)
+
+	        dirDist = math.sqrt(xDist**2 + yOffset**2)
+
+	        realX = math.degrees(math.atan(xOffset/yDist))
+	        realY = math.degrees(math.atan(yOffset/xDist))
+
+	        realPoints.append([realX, realY, 30])
+	return realPoints
+
+# Generate Matrix and add Custom points
+realPoints = getPointMatrix(plateDist, holeSpacing)
+x, y = getPointPos(plateDist, -25, -25)
+realPoints.append([x, y, 15])
+x, y = getPointPos(plateDist, -25, 25)
+realPoints.append([x, y, 15])
+x, y = getPointPos(plateDist, 25, -25)
+realPoints.append([x, y, 15])
 
 fig, ax = plt.subplots()
 
-realPoints = []
-
-# generate real point position matrix
-for x in range(-10, 11):
-    xOffset = x*holeSpacing
-    for y in range(-8, 9):
-        yOffset = y*holeSpacing
-
-        xDist = math.sqrt(plateDist**2 + xOffset**2)
-        yDist = math.sqrt(plateDist**2 + yOffset**2)
-
-        dirDist = math.sqrt(xDist**2 + yOffset**2)
-
-        realX = math.degrees(math.atan(xOffset/yDist))
-        realY = math.degrees(math.atan(yOffset/xDist))
-
-
-        col = "red"
-        scale = (50 / dirDist) * plateDist
-
-        ax.scatter(realX, realY, c=col, s=scale,
+for i in range(len(realPoints)):
+    x, y = realPoints[i][0], realPoints[i][1]
+    scale = realPoints[i][2]
+    col = getRandColor()
+    col = "red"
+    ax.scatter(x, y, c=col, s=scale,
                alpha=1.0, edgecolors='none')
 
-        realPoints.append([realX, realY])
-
-#ax.legend()
 ax.grid(True)
-
 plt.show()
 
 #_=input()
@@ -152,10 +207,10 @@ examine.column_fit(x, y,data)
 """
 examine.set_aper_phot_pars({'function':["aperphot",],
 'center':[True,"Center the object location using a Gaussian2D fit"],
-'width':[4,"Width of sky annulus in pixels"],
+'width':[3,"Width of sky annulus in pixels"],
 'subsky':[True,"Subtract a sky background?"],
-'skyrad':[6,"Distance to start sky annulus is pixels"],
-'radius':[4,"Radius of aperture for star flux"],
+'skyrad':[4,"Distance to start sky annulus is pixels"],
+'radius':[2,"Radius of aperture for star flux"],
 'zmag':[25.,"zeropoint for the magnitude calculation"],
 'genplot': [True, 'Plot the apertures'],
 'title': [None, 'Title of the plot'],
@@ -171,6 +226,7 @@ exactPoints = []
 try:
     while c < pointsToAnalyze:
         maxCoords = ranked[p][0].split()
+        print("p:", p)
         p += 1
 
         x = int(maxCoords[1])
@@ -183,21 +239,34 @@ try:
                 pass
             if dist < lowestDist:
                 lowestDist = dist
-        if lowestDist > minDistance:            # New point discovered
+        print("lowest Dist:", lowestDist)
+        if lowestDist > minDistance: # and 10 < x < 150 and 10 < y < 110:            # New point discovered
+            print("==== NEW POINT ====")
             if verbose:
-                print()
                 print(lowestDist)
-                print(x, y)
-
-            exactX, exactY, flux = examine.aper_phot(x, y, data)
+                print(dataList[y][x])
+                print("Position", x, y)
+            try:
+                exactX, exactY, flux = examine.aper_phot(x, y, data)
+                success = True
+                #breakPoint()
+            except Exception as e:
+                print("aper_phot failed...")
+                traceback.print_exc()
+                exactX, exactY, flux = x, y, 20
+                success = False
+                breakPoint()
             if flux < minFlux:
                 print("Breaking due to minFlux")
                 break
             c += 1
-            exactPoints.append([exactX, exactY])
+            exactPoints.append([exactX, exactY, success])
 
-            alreadyExamined.append([x, y])
+            alreadyExamined.append([exactX, exactY])
             #_ = input("")
+            print("==== END POINT ====")
+        else:
+            print("pos:", x, y)
     print("search ended")
     print("analyzed", c, "points")
 except TypeError as E:
@@ -243,11 +312,11 @@ for i in range(len(realPoints)):
 
 for i in range(len(exactAngles)):
     x, y = exactAngles[i][0], exactAngles[i][1]
-    scale = 50
+    scale = 20
     col = getRandColor()
     col = 'red'
     ax.scatter(x, y, c=col, s=scale,
-               alpha=0.5, edgecolors='none')
+               alpha=1.0, edgecolors='none')
 
     x, y = realAngles[i][0], realAngles[i][1]
     scale = 50
@@ -262,7 +331,6 @@ for i in range(len(conX)):
 
 #ax.legend()
 ax.grid(True)
-
 plt.show()
 
 
@@ -270,12 +338,29 @@ fig, ax = plt.subplots()
 
 for i in range(len(exactAngles)):
     x, y = exactAngles[i][0], exactAngles[i][1]
-    scale = (abs(angleErrors[i][0]) + abs(angleErrors[i][1])) * 10
+    scale = (abs(angleErrors[i][0]) + abs(angleErrors[i][1])) * 30
     col = getRandColor()
     col = 'red'
     ax.scatter(x, y, c=col, s=scale,
                alpha=1.0, edgecolors='none')
 
+ax.grid(True)
+plt.show()
+
+fig, ax = plt.subplots()
+
+for i in range(len(exactPoints)):
+    x, y = exactPoints[i][0], exactPoints[i][1]
+    scale = 30
+    col = getRandColor()
+    if exactPoints[i][2] == True:
+    	col = "green"
+    else:
+    	col = 'red'
+    ax.scatter(x, y, c=col, s=scale,
+               alpha=1.0, edgecolors='none')
+
+ax.grid(True)
 plt.show()
 
 print(len(exactPoints))
