@@ -25,6 +25,14 @@ and ValueError: operands could not be broadcast together with shapes (placeholde
 if point is too close to the upper border of the image (distance to border < delta)
 Current workaround:
 Dont use Gaussian fit in these cases and instead use the position of the brightest Pixel
+
+
+
+
+CURRENT SETTINGS:
+                     Min distance between points| \/Enable Debugging
+python3 pointDetect.py raspi/rgb158.fits 224 10 7 True
+               Filename^  Number of points^   ^Min Flux threshold
 """
 
 
@@ -58,7 +66,7 @@ holeSpacing = 50                  # Distance between points in mm
 ignoreBreakpoints = False
 
 
-# override with commandline Args:
+# override Presets with commandline Args:
 argCount = len(sys.argv)
 
 try:
@@ -82,6 +90,7 @@ except Exception as e:
 
 
 def centroidFinder(x, y, data, r):
+    """Experimental, doesnt work"""
     xx = int(x)
     yy = int(y)
     chunk = data[yy-r : yy+r, xx-r : xx+r]
@@ -89,15 +98,18 @@ def centroidFinder(x, y, data, r):
 
 
 
-def  pythDist(a, b):
+def pythDist(a, b):
+    """Calculates Pythagorean distance"""
     dist = math.sqrt(a**2 + b**2)
     return dist
 
 def getRandColor():
+    """Returns random Hex Color String"""
     r = lambda: random.randint(0,255)
     return ('#%02X%02X%02X' % (r(),r(),r()))
 
 def pxToDeg(px):
+    """Converts Pixel Position to Angle, assuming Equiangular projection"""
     deg = px * 0.35625   # multiply pixel position with degrees per pixel
     return deg
 
@@ -113,6 +125,7 @@ def getNearestHole(measuredX, measuredY):
     return realX, realY
 
 def breakPoint():
+    """Starts interactive prompt for debugging"""
 	global ignoreBreakpoints
 	if not ignoreBreakpoints:
 		while True:
@@ -121,6 +134,8 @@ def breakPoint():
 				break
 			if userIn == "k" or userIn == "kill":
 				sys.exit()
+            if userIn == "h" or userIn == "help":
+                print("Press Enter or enter c or continue to exit the prompt and continue the program or enter k or kill to stop the program")
 			else:
 				try:
 					exec(userIn)
@@ -128,6 +143,7 @@ def breakPoint():
 					print("Fail", e)
 
 def getPointPos(plateDist, xOffset, yOffset):
+    """Calculates the Angles of a point given the Points position"""
     xDist = math.sqrt(plateDist**2 + xOffset**2)
     yDist = math.sqrt(plateDist**2 + yOffset**2)
 
@@ -158,7 +174,7 @@ def getPointMatrix(plateDist, holeSpacing):
 	        realPoints.append([realX, realY, 30])
 	return realPoints
 
-# Generate Matrix and add Custom points
+# Generate Matrix and add Custom points (Orientation markers)
 realPoints = getPointMatrix(plateDist, holeSpacing)
 x, y = getPointPos(plateDist, -25, -25)
 realPoints.append([x, y, 15])
@@ -167,6 +183,7 @@ realPoints.append([x, y, 15])
 x, y = getPointPos(plateDist, 25, -25)
 realPoints.append([x, y, 15])
 
+#Plot all points that should be measured
 fig, ax = plt.subplots()
 
 for i in range(len(realPoints)):
@@ -229,7 +246,7 @@ examine.set_aper_phot_pars({'function':["aperphot",],
 
 alreadyExamined = []
 c = 0   # counts different points
-p = 0   # counts every point
+p = 0   # counts every checked pixel
 exactPoints = []
 try:
     while c < pointsToAnalyze:
@@ -277,8 +294,8 @@ try:
             print("pos:", x, y)
     print("search ended")
     print("analyzed", c, "points")
-except TypeError as E:
-    print(E)
+except TypeError as e:
+    print(e)
     print("An Error occured, you may need to edit imexam to return the Point position for aper_phot")
 
 
@@ -333,7 +350,7 @@ for i in range(len(exactAngles)):
     ax.scatter(x, y, c=col, s=scale,
                alpha=0.5, edgecolors='none')
 
-for i in range(len(conX)):
+for i in range(len(conX)):  #Add connection lines from measured to real points
     plt.plot(conX[i], conY[i], c="blue")
 
 
@@ -355,6 +372,8 @@ for i in range(len(exactAngles)):
 ax.grid(True)
 plt.show()
 
+
+#Plot all the Points that have been measured, green means successful aper_phot, red means failure
 fig, ax = plt.subplots()
 
 for i in range(len(exactPoints)):
@@ -374,4 +393,4 @@ plt.show()
 print(len(exactPoints))
 print(shape)
 
-_ = input("press enter to exit")
+_ = input("press enter to exit")    #Keep plots from closing after program is finished
