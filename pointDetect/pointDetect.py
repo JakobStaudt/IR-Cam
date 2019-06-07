@@ -42,6 +42,7 @@ import random
 import math
 import sys
 import traceback
+import photutils
 
 
 
@@ -54,7 +55,7 @@ verbose = False                   # Enable debug printout
 plateDist = 815                   # Distance to plate in mm
 holeSpacing = 50                  # Distance between points in mm
 
-ignoreBreakpoints = True
+ignoreBreakpoints = False
 
 
 # override with commandline Args:
@@ -78,6 +79,13 @@ try:
 except Exception as e:
     print("INVALID ARGUMENTS:", e)
     sys.exit()
+
+
+def centroidFinder(x, y, data, r):
+    xx = int(x)
+    yy = int(y)
+    chunk = data[yy-r : yy+r, xx-r : xx+r]
+    x, y = photutils.centroid_2dg(x, y, chunk)
 
 
 
@@ -207,9 +215,9 @@ examine.column_fit(x, y,data)
 """
 examine.set_aper_phot_pars({'function':["aperphot",],
 'center':[True,"Center the object location using a Gaussian2D fit"],
-'width':[3,"Width of sky annulus in pixels"],
+'width':[2,"Width of sky annulus in pixels"],
 'subsky':[True,"Subtract a sky background?"],
-'skyrad':[4,"Distance to start sky annulus is pixels"],
+'skyrad':[3,"Distance to start sky annulus is pixels"],
 'radius':[2,"Radius of aperture for star flux"],
 'zmag':[25.,"zeropoint for the magnitude calculation"],
 'genplot': [True, 'Plot the apertures'],
@@ -249,7 +257,7 @@ try:
             try:
                 exactX, exactY, flux = examine.aper_phot(x, y, data)
                 success = True
-                #breakPoint()
+                breakPoint()
             except Exception as e:
                 print("aper_phot failed...")
                 traceback.print_exc()
